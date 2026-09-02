@@ -16,9 +16,18 @@ ARG NODE_VERSION=22
 ########################################################################
 FROM node:${NODE_VERSION}-bookworm-slim
 
-# Pin this to a validated release for reproducible production builds, e.g.
-#   docker build --build-arg MCP_VERSION=0.0.41 ...
+LABEL org.opencontainers.image.source="https://github.com/apogiatzis/browser-mcp-docker" \
+      org.opencontainers.image.description="Headless Chromium + CDP-backed Playwright MCP server for AI agents" \
+      org.opencontainers.image.licenses="MIT"
+
+# --- Configurable versions --------------------------------------------------
+# MCP server: pin to a validated release for reproducible builds, or leave
+#   "latest". CI resolves this to a concrete version at build time.
 ARG MCP_VERSION=latest
+# Chromium: leave empty to install the newest version in the Debian suite
+#   (picks up security updates on every rebuild), or pin an exact apt version
+#   string, e.g. --build-arg CHROMIUM_VERSION=140.0.7339.185-1~deb12u1
+ARG CHROMIUM_VERSION=
 
 ENV DEBIAN_FRONTEND=noninteractive \
     NODE_ENV=production \
@@ -30,8 +39,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # System dependencies: Chromium + its runtime libs (pulled in transitively),
 # fonts for correct rendering, and process/health tooling.
 # ---------------------------------------------------------------------------
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        chromium \
+RUN set -eux; \
+    if [ -n "${CHROMIUM_VERSION}" ]; then CHROMIUM_PKG="chromium=${CHROMIUM_VERSION}"; else CHROMIUM_PKG="chromium"; fi; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        "${CHROMIUM_PKG}" \
         ca-certificates \
         fonts-liberation \
         fonts-noto-color-emoji \
@@ -40,11 +52,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         socat \
         supervisor \
         curl \
-        procps \
-    && rm -rf /var/lib/apt/lists/*
+        procps; \
+    rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
-# MCP server. Installed globally; exposes the `mcp-server-playwright` binary.
+# MCP server. Installed globally; exposes the `playwright-mcp` binary.
 # ---------------------------------------------------------------------------
 RUN npm install -g @playwright/mcp@${MCP_VERSION} \
     && npm cache clean --force

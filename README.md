@@ -32,14 +32,51 @@ Agents talk to the MCP server; the raw CDP port is only reachable via an opt-in 
 - **Hardened by default** — non-root, read-only rootfs, all Linux capabilities
   dropped, `no-new-privileges`, healthchecked.
 
+## Container image (GHCR)
+
+Prebuilt multi-arch images (`linux/amd64`, `linux/arm64`) are published to the
+GitHub Container Registry by CI:
+
+```bash
+docker pull ghcr.io/apogiatzis/browser-mcp-docker:latest
+# or a specific MCP release:
+docker pull ghcr.io/apogiatzis/browser-mcp-docker:mcp-0.0.80
+```
+
+Tags: `latest` (default branch), `sha-<commit>`, `v<semver>` (on git tags), and
+`mcp-<version>` (the resolved `@playwright/mcp` version baked in).
+
 ## Build
 
 ```bash
 docker build -t browser-cdp-mcp:latest .
 
-# Reproducible production build — pin the MCP server version:
-docker build --build-arg MCP_VERSION=0.0.41 -t browser-cdp-mcp:1.0.0 .
+# Reproducible production build — pin both versions:
+docker build \
+  --build-arg MCP_VERSION=0.0.80 \
+  --build-arg CHROMIUM_VERSION=140.0.7339.185-1~deb12u1 \
+  -t browser-cdp-mcp:1.0.0 .
 ```
+
+### Build args
+
+| Arg                | Default    | Description                                                        |
+| ------------------ | ---------- | ------------------------------------------------------------------ |
+| `MCP_VERSION`      | `latest`   | `@playwright/mcp` npm version. CI resolves `latest` to a concrete version. |
+| `CHROMIUM_VERSION` | *(empty)*  | Exact Debian `chromium` apt version to pin; empty = newest in the suite. |
+| `NODE_VERSION`     | `22`       | Node base image tag.                                               |
+
+## CI / auto-update
+
+- **`.github/workflows/build.yml`** — builds and pushes to GHCR on pushes to
+  `main`, on `v*` tags, and on manual dispatch (with `mcp_version` /
+  `chromium_version` inputs). It is also reusable via `workflow_call`. The build
+  is verified post-push by running `chromium --version` and `playwright-mcp
+  --version`, recorded in the job summary.
+- **`.github/workflows/scheduled-update.yml`** — runs weekly (and on demand),
+  calling the build workflow with `mcp_version: latest` so the image tracks the
+  newest MCP release and picks up Chromium security updates from Debian on every
+  rebuild. Pin a version via workflow-dispatch inputs to override.
 
 ## Run
 

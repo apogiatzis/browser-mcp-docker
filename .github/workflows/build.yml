@@ -1,0 +1,125 @@
+name: Build and Push
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - "entrypoint.sh"
+      - "healthcheck.sh"
+      - "supervisord.conf"
+      - ".dockerignore"
+      - ".github/workflows/build.yml"
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      mcp_version:
+        description: '@playwright/mcp version ("latest" or an exact version)'
+        type: string
+        default: latest
+      chromium_version:
+        description: "Chromium apt version to pin (empty = newest in Debian suite)"
+        type: string
+        default: ""
+  # Reusable: called by the scheduled auto-update workflow.
+  workflow_call:
+    inputs:
+      mcp_version:
+        type: string
+        default: latest
+      chromium_version:
+        type: string
+        default: ""
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve MCP version
+        id: resolve
+        run: |
+          REQUESTED="${{ inputs.mcp_version || 'latest' }}"
+          if [ "$REQUESTED" = "latest" ] || [ -z "$REQUESTED" ]; then
+            RESOLVED="$(npm view @playwright/mcp version)"
+          else
+            RESOLVED="$REQUESTED"
+          fi
+          echo "mcp_version=$RESOLVED" >> "$GITHUB_OUTPUT"
+          echo "chromium_version=${{ inputs.chromium_version || '' }}" >> "$GITHUB_OUTPUT"
+          echo "Resolved MCP version: $RESOLVED" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=sha,prefix=sha-
+            type=raw,value=mcp-${{ steps.resolve.outputs.mcp_version }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            MCP_VERSION=${{ steps.resolve.outputs.mcp_version }}
+            CHROMIUM_VERSION=${{ steps.resolve.outputs.chromium_version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Verify image and record versions
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+          echo "Verifying $IMAGE (linux/amd64)"
+          CHROME_VER="$(docker run --rm --entrypoint chromium "$IMAGE" --version 2>/dev/null || echo 'unknown')"
+          MCP_VER="$(docker run --rm --entrypoint playwright-mcp "$IMAGE" --version 2>/dev/null || echo 'unknown')"
+          {
+            echo "### Built image"
+            echo ""
+            echo "| Component | Version |"
+            echo "| --------- | ------- |"
+            echo "| Chromium | \`$CHROME_VER\` |"
+            echo "| @playwright/mcp | \`$MCP_VER\` |"
+            echo ""
+            echo "**Tags**"
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

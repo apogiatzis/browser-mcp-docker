@@ -1,0 +1,29 @@
+name: Scheduled auto-update
+
+# Rebuilds weekly so the image always ships the latest @playwright/mcp release
+# and the newest Chromium (plus security fixes) available in the Debian suite.
+on:
+  schedule:
+    # Mondays at 06:00 UTC
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      mcp_version:
+        description: '@playwright/mcp version ("latest" or an exact version)'
+        type: string
+        default: latest
+      chromium_version:
+        description: "Chromium apt version to pin (empty = newest in Debian suite)"
+        type: string
+        default: ""
+
+jobs:
+  rebuild:
+    uses: ./.github/workflows/build.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      mcp_version: ${{ inputs.mcp_version || 'latest' }}
+      chromium_version: ${{ inputs.chromium_version || '' }}
+    secrets: inherit
