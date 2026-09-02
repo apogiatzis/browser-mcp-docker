@@ -103,6 +103,40 @@ docker compose ps          # STATUS should be "healthy"
 docker compose logs -f
 ```
 
+### Accessing apps running on the host
+
+With the default bridge network, `localhost` inside the container is the
+container itself — the browser **cannot** reach apps you're running on the host
+(e.g. `http://localhost:3000`). Two options:
+
+- **Host networking (Linux):** share the host's network namespace so the browser
+  can hit `localhost:<port>` directly.
+
+  ```bash
+  docker run -d --name browser-mcp --network host \
+    --shm-size=1g --read-only --tmpfs /tmp:size=512m,mode=1777 \
+    --security-opt no-new-privileges:true --cap-drop ALL \
+    browser-cdp-mcp:latest
+  ```
+
+  > With `--network host`, `-p` port mappings are ignored — the MCP server binds
+  > directly to the host on `8931` (and `9223` if `EXPOSE_CDP=true`). Only use this
+  > on a trusted host, and consider setting `MCP_HOST=127.0.0.1` to keep the MCP
+  > port off external interfaces.
+
+- **`host.docker.internal` (Docker Desktop, or Linux with a host-gateway):** keep
+  bridge networking and have the browser navigate to
+  `http://host.docker.internal:<port>`. On Linux add the mapping explicitly:
+
+  ```bash
+  docker run -d --name browser-mcp \
+    --add-host=host.docker.internal:host-gateway \
+    -p 8931:8931 browser-cdp-mcp:latest
+  ```
+
+For Compose, add `network_mode: host` to the service (and drop the `ports:`
+block), or add `host.docker.internal:host-gateway` under `extra_hosts:`.
+
 ## Connect an agent
 
 The MCP server is reachable at:
