@@ -1,0 +1,48 @@
+services:
+  browser-mcp:
+    build:
+      context: .
+      args:
+        # Pin to a validated release for production.
+        MCP_VERSION: latest
+    image: browser-cdp-mcp:latest
+    container_name: browser-cdp-mcp
+    restart: unless-stopped
+
+    ports:
+      - "8931:8931"          # MCP (HTTP/SSE) — the agent-facing endpoint
+      # - "9223:9223"        # optional CDP proxy; uncomment WITH EXPOSE_CDP=true
+
+    environment:
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8931"
+      CDP_PORT: "9222"
+      WINDOW_SIZE: "1280,720"
+      EXPOSE_CDP: "false"     # set "true" (+ publish 9223) only on a trusted network
+
+    # Chromium is chatty on /dev/shm; give it real shared memory.
+    shm_size: "1gb"
+    # NOTE: do not set `init: true` — the image already runs tini as its init.
+
+    # --- Hardening -----------------------------------------------------------
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # ------------------------------------------------------------------------
+
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "2.0"
+
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
