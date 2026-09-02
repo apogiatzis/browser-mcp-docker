@@ -146,15 +146,70 @@ The MCP server is reachable at:
 | Streamable HTTP  | `http://<host>:8931/mcp`     |
 | SSE (legacy)     | `http://<host>:8931/sse`     |
 
-Example client config (Claude Desktop / Cursor / any MCP client):
+### Add to your agent
+
+Replace `localhost` with the container/host address if the agent runs elsewhere.
+
+**Claude Code (CLI)**
+
+```bash
+claude mcp add --transport http browser http://localhost:8931/mcp
+# or SSE:  claude mcp add --transport sse browser http://localhost:8931/sse
+claude mcp list
+```
+
+**Claude Desktop** — `claude_desktop_config.json` (Settings → Developer → Edit
+Config). Stable builds connect to remote servers through the `mcp-remote` bridge:
 
 ```json
 {
   "mcpServers": {
-    "browser": {
-      "type": "http",
-      "url": "http://localhost:8931/mcp"
-    }
+    "browser": { "command": "npx", "args": ["-y", "mcp-remote", "http://localhost:8931/mcp"] }
+  }
+}
+```
+
+**Cursor** — `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
+
+```json
+{
+  "mcpServers": {
+    "browser": { "url": "http://localhost:8931/mcp" }
+  }
+}
+```
+
+**VS Code (GitHub Copilot, agent mode)** — CLI or `.vscode/mcp.json`:
+
+```bash
+code --add-mcp '{"name":"browser","type":"http","url":"http://localhost:8931/mcp"}'
+```
+
+```json
+{
+  "servers": {
+    "browser": { "type": "http", "url": "http://localhost:8931/mcp" }
+  }
+}
+```
+
+**Windsurf** — `~/.codeium/windsurf/mcp_config.json` (uses the SSE endpoint):
+
+```json
+{
+  "mcpServers": {
+    "browser": { "serverUrl": "http://localhost:8931/sse" }
+  }
+}
+```
+
+**Cline / Roo Code / other stdio-only clients** — bridge HTTP to stdio with
+[`mcp-remote`](https://www.npmjs.com/package/mcp-remote):
+
+```json
+{
+  "mcpServers": {
+    "browser": { "command": "npx", "args": ["-y", "mcp-remote", "http://localhost:8931/mcp"] }
   }
 }
 ```
