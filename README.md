@@ -90,7 +90,7 @@ docker run -d --name browser-mcp \
   --cap-drop ALL \
   --memory 2g --cpus 2 \
   -p 8931:8931 \
-  browser-cdp-mcp:latest
+  ghcr.io/apogiatzis/browser-mcp-docker:latest
 ```
 
 > Do **not** add `--init` — the image already runs `tini` as its init process.
@@ -107,35 +107,68 @@ docker compose logs -f
 
 With the default bridge network, `localhost` inside the container is the
 container itself — the browser **cannot** reach apps you're running on the host
-(e.g. `http://localhost:3000`). Two options:
+(e.g. `http://localhost:3000`), including other containers' published ports.
 
-- **Host networking (Linux):** share the host's network namespace so the browser
-  can hit `localhost:<port>` directly.
+The catch with agents: they don't know they're in a container, so they navigate
+to `localhost:<port>` and it silently fails. You want that to just work without
+teaching every agent a special hostname.
 
-  ```bash
-  docker run -d --name browser-mcp --network host \
-    --shm-size=1g --read-only --tmpfs /tmp:size=512m,mode=1777 \
-    --security-opt no-new-privileges:true --cap-drop ALL \
-    browser-cdp-mcp:latest
-  ```
+#### Recommended: transparent `localhost` remap (`MAP_LOCALHOST_TO_HOST`)
 
-  > With `--network host`, `-p` port mappings are ignored — the MCP server binds
-  > directly to the host on `8931` (and `9223` if `EXPOSE_CDP=true`). Only use this
-  > on a trusted host, and consider setting `MCP_HOST=127.0.0.1` to keep the MCP
-  > port off external interfaces.
+Set `MAP_LOCALHOST_TO_HOST=true`. This passes Chromium
+`--host-resolver-rules="MAP localhost host.docker.internal"`, so the browser
+resolves the `localhost` hostname to the Docker host — for **any port**, with no
+port list to maintain. Agents keep typing `localhost:<port>` and reach host apps
+unchanged. It needs **no extra privileges**, so the hardened defaults (non-root,
+read-only, all caps dropped) stay intact.
 
-- **`host.docker.internal` (Docker Desktop, or Linux with a host-gateway):** keep
-  bridge networking and have the browser navigate to
-  `http://host.docker.internal:<port>`. On Linux add the mapping explicitly:
+```bash
+docker run -d --name browser-mcp \
+  --shm-size=1g --read-only --tmpfs /tmp:size=512m,mode=1777 \
+  --security-opt no-new-privileges:true --cap-drop ALL \
+  --add-host=host.docker.internal:host-gateway \
+  -e MAP_LOCALHOST_TO_HOST=true \
+  -p 8931:8931 ghcr.io/apogiatzis/browser-mcp-docker:latest
+```
 
-  ```bash
-  docker run -d --name browser-mcp \
-    --add-host=host.docker.internal:host-gateway \
-    -p 8931:8931 browser-cdp-mcp:latest
-  ```
+The bundled `docker-compose.yml` already wires the `extra_hosts` mapping; just
+flip `MAP_LOCALHOST_TO_HOST` to `"true"`. On Docker Desktop the
+`host.docker.internal` name resolves automatically; the `--add-host` /
+`extra_hosts` line makes it work on Linux too.
 
-For Compose, add `network_mode: host` to the service (and drop the `ports:`
-block), or add `host.docker.internal:host-gateway` under `extra_hosts:`.
+> **Limitation:** only the `localhost` *hostname* is remapped. A literal
+> `http://127.0.0.1:<port>` bypasses Chromium's resolver and is **not** redirected
+> — use the `localhost` name. If you must cover literal IPs as well, use host
+> networking (below), or a NAT redirect (see *Full loopback redirect*).
+
+#### Alternative: host networking (Linux only)
+
+Share the host's network namespace so the browser hits `localhost:<port>`
+directly — covers literal `127.0.0.1` too. Linux only (on Docker Desktop for
+Mac/Windows, `--network host` binds the VM, not your machine).
+
+```bash
+docker run -d --name browser-mcp --network host \
+  --shm-size=1g --read-only --tmpfs /tmp:size=512m,mode=1777 \
+  --security-opt no-new-privileges:true --cap-drop ALL \
+  ghcr.io/apogiatzis/browser-mcp-docker:latest
+```
+
+> With `--network host`, `-p` port mappings are ignored — the MCP server binds
+> directly to the host on `8931` (and `9223` if `EXPOSE_CDP=true`). Only use this
+> on a trusted host, and consider setting `MCP_HOST=127.0.0.1` to keep the MCP
+> port off external interfaces. For Compose, use `network_mode: host` and drop the
+> `ports:` block.
+
+#### Full loopback redirect (advanced, breaks the hardened defaults)
+
+If you need every loopback port — including literal `127.0.0.1` — remapped to the
+host on Docker Desktop, run a NAT rule inside the container that DNATs loopback
+TCP to `host.docker.internal`, excluding the container's own ports (`8931`,
+`9222`, `9223`). This requires running as **root** with **`CAP_NET_ADMIN`** and
+`net.ipv4.conf.all.route_localnet=1`, which undoes the non-root / dropped-caps
+hardening this image ships with — so it is **not** built in. Prefer
+`MAP_LOCALHOST_TO_HOST` unless you specifically need literal-IP coverage.
 
 ## Connect an agent
 
@@ -235,7 +268,7 @@ non-loopback address itself).
 docker run -d --name browser-mcp \
   --shm-size=1g -e EXPOSE_CDP=true \
   -p 8931:8931 -p 9223:9223 \
-  browser-cdp-mcp:latest
+  ghcr.io/apogiatzis/browser-mcp-docker:latest
 
 curl http://localhost:9223/json/version
 ```
@@ -258,6 +291,8 @@ curl http://localhost:9223/json/version
 | `CDP_PORT`          | `9222`         | Chromium DevTools port (loopback only).                |
 | `EXPOSE_CDP`        | `false`        | If `true`, start the CDP proxy on `CDP_PROXY_PORT`.    |
 | `CDP_PROXY_PORT`    | `9223`         | Published port for the CDP proxy.                      |
+| `MAP_LOCALHOST_TO_HOST` | `false`    | If `true`, remap the browser's `localhost` to the Docker host (any port). Needs `host.docker.internal` to resolve. |
+| `HOST_INTERNAL_NAME` | `host.docker.internal` | Hostname `localhost` is remapped to when the above is on. |
 | `WINDOW_SIZE`       | `1280,720`     | Chromium viewport / window size.                       |
 | `MCP_OUTPUT_DIR`    | `/tmp/mcp-output` | Where the MCP server writes snapshots/traces.       |
 

@@ -19,6 +19,12 @@ services:
       CDP_PORT: "9222"
       WINDOW_SIZE: "1280,720"
       EXPOSE_CDP: "false"     # set "true" (+ publish 9223) only on a trusted network
+      MAP_LOCALHOST_TO_HOST: "${MAP_LOCALHOST_TO_HOST:-false}"  # "true" → browser's localhost:<port> reaches host apps
+
+    # Lets the browser resolve host.docker.internal → the Docker host. Automatic on
+    # Docker Desktop; this makes it work on Linux too. Required for MAP_LOCALHOST_TO_HOST.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
     # Chromium is chatty on /dev/shm; give it real shared memory.
     shm_size: "1gb"

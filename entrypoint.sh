@@ -12,9 +12,26 @@ CHROME_BIN="${CHROME_BIN:-/usr/bin/chromium}"
 WINDOW_SIZE="${WINDOW_SIZE:-1280,720}"
 EXPOSE_CDP="${EXPOSE_CDP:-false}"
 CDP_PROXY_PORT="${CDP_PROXY_PORT:-9223}"
+MAP_LOCALHOST_TO_HOST="${MAP_LOCALHOST_TO_HOST:-false}"
+HOST_INTERNAL_NAME="${HOST_INTERNAL_NAME:-host.docker.internal}"
+
+# Remap the browser's `localhost` to the Docker host so agents can reach host apps
+# by typing localhost:<port> unchanged. Only the `localhost` *hostname* is remapped
+# (any port is preserved); a literal 127.0.0.1 in a URL bypasses Chromium's resolver
+# and is not affected. Kept empty unless opted in, so the default posture is untouched.
+CHROME_HOST_RESOLVER=""
+if [ "${MAP_LOCALHOST_TO_HOST}" = "true" ]; then
+    if ! getent hosts "${HOST_INTERNAL_NAME}" >/dev/null 2>&1; then
+        echo "[entrypoint] WARNING: MAP_LOCALHOST_TO_HOST=true but '${HOST_INTERNAL_NAME}' does not resolve."
+        echo "[entrypoint]          On Docker Desktop it is automatic; on Linux add"
+        echo "[entrypoint]          --add-host=${HOST_INTERNAL_NAME}:host-gateway (compose: extra_hosts)."
+    fi
+    CHROME_HOST_RESOLVER="--host-resolver-rules=\"MAP localhost ${HOST_INTERNAL_NAME}\""
+    echo "[entrypoint] localhost remap ENABLED: browser 'localhost' -> ${HOST_INTERNAL_NAME} (any port)"
+fi
 
 # Exported so supervisord can expand them via %(ENV_x)s.
-export CDP_PORT MCP_PORT MCP_HOST MCP_ALLOWED_HOSTS CHROME_BIN WINDOW_SIZE
+export CDP_PORT MCP_PORT MCP_HOST MCP_ALLOWED_HOSTS CHROME_BIN WINDOW_SIZE CHROME_HOST_RESOLVER
 
 # Create writable HOME/XDG/output dirs on the /tmp tmpfs (read-only rootfs).
 mkdir -p \

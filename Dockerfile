@@ -84,6 +84,14 @@ ENV CHROME_BIN=/usr/bin/chromium \
     EXPOSE_CDP=false \
     CDP_PROXY_PORT=9223
 
+# MAP_LOCALHOST_TO_HOST=true remaps the `localhost` hostname in the browser to the
+# Docker host, so agents can browse to host apps by typing localhost:<port> unchanged.
+# CHROME_HOST_RESOLVER is built from it by entrypoint.sh (empty = no remap); it is
+# declared here so supervisord's %(ENV_CHROME_HOST_RESOLVER)s expansion is always defined.
+ENV MAP_LOCALHOST_TO_HOST=false \
+    HOST_INTERNAL_NAME=host.docker.internal \
+    CHROME_HOST_RESOLVER=
+
 COPY supervisord.conf /etc/supervisor/supervisord.conf
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY healthcheck.sh /usr/local/bin/healthcheck.sh
